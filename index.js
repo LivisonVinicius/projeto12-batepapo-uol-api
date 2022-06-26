@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import joi from "joi";
 import { MongoClient, ObjectId } from "mongodb";
+import dayjs from "dayjs";
 
 dotenv.config();
 
@@ -14,16 +15,26 @@ const mongoClient = new MongoClient(process.env.MONGO_URI);
 
 let db;
 mongoClient.connect(() => {
-  db = mongoClient.db('uol_db');
+  db = mongoClient.db("uol_db");
 });
 const participantsSchema = joi.object({
   name: joi.string().required(),
 });
+const messagesSchema = joi.object({
+  to: joi.string().required(),
+  text: joi.string().required(),
+  type: joi.string().valid("message","private_message").required(),
+});
 
-app.get("/participants", (req, res) => {
-  const promise = db.collection("participants").find({}).toArray();
-  promise.then((participants) => res.send(participants));
-  promise.catch((e) => res.sendStatus(500));
+app.get("/participants", async (req, res) => {
+  try {
+    const participants = await db.collection("participants").find({}).toArray();
+    res.send(participants);
+    return;
+  } catch (error) {
+    res.sendStatus(500);
+    return;
+  }
 });
 
 app.post("/participants", async (req, res) => {
@@ -33,22 +44,84 @@ app.post("/participants", async (req, res) => {
   const existingUser = await db
     .collection("participants")
     .findOne({ name: req.body.name });
-    
-    if (validation.error) {
-      res.sendStatus(422);
-      return;
-    }
-    if (existingUser) {
-      res.sendStatus(409);
-      return;
-    }
-  try{
-    await db.collection("participants").insertOne({"name":req.body.name, lastStatus:Date.now()});
+
+  if (validation.error) {
+    res.sendStatus(422);
+    return;
+  }
+  if (existingUser) {
+    res.sendStatus(409);
+    return;
+  }
+  try {
+    await db
+      .collection("participants")
+      .insertOne({ name: req.body.name, lastStatus: Date.now() });
+    await db
+      .collection("messages")
+      .insertOne({
+        from: req.body.name,
+        to: "Todos",
+        text: "entra na sala...",
+        type: "status",
+        time: dayjs().format("HH:mm:ss"),
+      });
     res.sendStatus(201);
-    return
-  }catch (error){
+    return;
+  } catch (error) {
     res.sendStatus(500);
-    return
+    return;
+  }
+});
+
+app.post("/messages", async (req, res) => {
+  const user = req.headers.user;
+  const validation = messagesSchema.validate(req.body, {
+    abortEarly: true,
+  });
+  const teste= {
+    from: user,
+    to: req.body.to,
+    text: req.body.text,
+    type: req.body.type,
+    time: dayjs().format("HH:mm:ss"),
+  }
+  console.log(teste)
+  const existingUser = await db
+    .collection("participants")
+    .findOne({ name: req.body.name });
+  if (validation.error||existingUser) {
+    res.sendStatus(422);
+    return;
+  }
+  try {
+    await db
+      .collection("messages")
+      .insertOne({
+        from: user,
+        to: req.body.to,
+        text: req.body.text,
+        type: req.body.type,
+        time: dayjs().format("HH:mm:ss"),
+      });
+    res.sendStatus(201);
+    return;
+  } catch (error) {
+    res.sendStatus(500);
+    return;
+  }
+
+});
+
+app.get("/messages", async (req, res) => {
+  const limit = parseInt(req.query.limit);
+  try {
+    const messages = await db.collection("messages").find().toArray();
+    res.send(messages);
+    return;
+  } catch (error) {
+    res.sendStatus(500);
+    return;
   }
 });
 
