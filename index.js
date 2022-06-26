@@ -77,14 +77,6 @@ app.post("/messages", async (req, res) => {
   const validation = messagesSchema.validate(req.body, {
     abortEarly: true,
   });
-  const teste = {
-    from: user,
-    to: req.body.to,
-    text: req.body.text,
-    type: req.body.type,
-    time: dayjs().format("HH:mm:ss"),
-  };
-  console.log(teste);
   const existingUser = await db
     .collection("participants")
     .findOne({ name: req.body.name });
@@ -112,17 +104,13 @@ app.get("/messages", async (req, res) => {
   const user = req.headers.user;
   const limit = parseInt(req.query.limit);
   try {
-    const messages = await db.collection("messages").find().toArray();
-    const validMessages = messages.filter((message) => {
-      message.from === user ||
-        message.to === user ||
-        message.type === "message";
-    });
+    const messages = await db.collection("messages").find({$or:[{to:user}, { to:"Todos"} , {from:user}]}).toArray();
+    
     if (limit === NaN) {
-      res.send(validMessages);
+      res.send(messages);
       return;
     }
-    const showMessages = await validMessages.splice(-{ limit });
+    const showMessages = await messages.splice(-{ limit });
     res.send(showMessages);
     return;
   } catch (error) {
@@ -133,8 +121,6 @@ app.get("/messages", async (req, res) => {
 
 app.post("/status", async (req, res) => {
   const user = req.headers.user;
-  
-  
   try {
     const existingUser = await db.collection("participants").findOne({name: user });
     if (!existingUser) {
@@ -156,5 +142,25 @@ app.post("/status", async (req, res) => {
     return;
   }
 });
+
+setInterval(async () => {
+  const now = Date.now();
+  const deleted = await db
+    .collection("participants")
+    .find({ lastStatus: { $lt: now - 10000 } })
+    .toArray();
+  if (deleted.length > 0) {
+    await db.collection("messages").insertMany(
+      deleted.map((user) => ({
+        from: user.name,
+        to: "Todos",
+        text: "sai da sala...",
+        type: "status",
+        time: dayjs(now).format("HH:mm:ss"),
+      }))
+    );
+    await db.collection("participants").deleteMany({ lastStatus: { $lt: now - 10000 } });
+  }
+}, 15000);
 
 app.listen(5000);
